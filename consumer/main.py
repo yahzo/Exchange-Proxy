@@ -1,5 +1,6 @@
 import json
 from kafka import KafkaConsumer
+from datetime import datetime
 from elasticsearch import Elasticsearch
 
 # Configuration
@@ -28,7 +29,8 @@ def run():
         # On ajoute un timestamp actuel si l'API n'en donne pas de précis
         # Cela aidera Kibana pour le graphique temporel
         doc = {
-            "timestamp": data.get("time_last_updated_utc", ""),
+            # "timestamp": data.get("time_last_updated_utc", ""),
+            "@timestamp": datetime.utcnow().isoformat(),
             "base": data.get("base"),
             "rates": data.get("rates")
         }
