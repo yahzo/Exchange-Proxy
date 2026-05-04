@@ -1,0 +1,230 @@
+Corrections effectuees sur la branche step-1
+============================================
+
+Objectif
+--------
+
+La branche step-1 correspond au TP Kafka Kata du professeur.
+Le but etait de corriger une application Spring Boot utilisant Spring Kafka.
+
+L'application devait :
+- se connecter au broker Kafka local ;
+- envoyer un message dans un topic Kafka ;
+- consommer les messages du meme topic ;
+- utiliser une configuration Spring Kafka propre et coherente.
+
+
+1. Correction du broker Kafka
+-----------------------------
+
+Erreur avant correction :
+
+spring.kafka.bootstrap-servers=172.21.179.146:9092
+
+Probleme :
+Cette adresse correspondait a une IP locale/WSL specifique a une machine.
+Elle ne fonctionne pas forcement sur les autres ordinateurs.
+
+Correction apres :
+
+spring.kafka.bootstrap-servers=localhost:9092
+
+Pourquoi :
+Le broker Kafka du TP tourne sur localhost:9092.
+La configuration devient donc portable pour l'exercice.
+
+
+2. Centralisation du nom du topic
+---------------------------------
+
+Erreur avant correction :
+Le producer envoyait sur un topic en dur :
+
+mon-tunnel-topic
+
+Mais le consumer ecoutait un autre topic :
+
+xxxxx
+
+Probleme :
+Le producer et le consumer ne pointaient pas sur le meme topic.
+Le consumer ne pouvait donc pas lire les messages envoyes.
+
+Correction apres :
+
+app.kafka.topic=mon-tunnel-topic
+
+Puis utilisation de cette propriete dans le consumer :
+
+@KafkaListener(topics = "${app.kafka.topic}", groupId = "${spring.kafka.consumer.group-id}")
+
+Pourquoi :
+Le topic est maintenant defini a un seul endroit dans application.properties.
+Le producer et le consumer utilisent la meme valeur.
+
+
+3. Correction de KafkaProducerConfig.java
+-----------------------------------------
+
+Erreur avant correction :
+
+configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "PutBrokersAdress");
+
+Probleme :
+"PutBrokersAdress" etait un placeholder, pas une vraie adresse Kafka.
+Le producer ne pouvait pas se connecter au broker.
+
+Correction apres :
+
+configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+
+Pourquoi :
+La classe utilise maintenant la valeur Spring :
+
+@Value("${spring.kafka.bootstrap-servers}")
+
+Les serializers String etaient deja presents et ont ete conserves :
+
+StringSerializer.class
+
+
+4. Correction de KafkaConsumerConfig.java
+-----------------------------------------
+
+Erreurs avant correction :
+
+configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "PutBrokersAdress");
+configProps.put(ConsumerConfig.GROUP_ID_CONFIG, "GroupIdHere");
+
+Probleme :
+Le broker et le group id etaient des placeholders.
+Le consumer ne pouvait pas se connecter correctement a Kafka.
+
+Correction apres :
+
+configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+configProps.put(ConsumerConfig.GROUP_ID_CONFIG, consumerGroupId);
+
+Pourquoi :
+Le consumer utilise maintenant les proprietes Spring :
+
+spring.kafka.bootstrap-servers=localhost:9092
+spring.kafka.consumer.group-id=tp-kafka-step1
+
+Ajout aussi de :
+
+configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+Pourquoi :
+Cela permet au consumer de lire les messages depuis le debut lorsqu'il n'a pas encore d'offset.
+
+
+5. Correction de MessageConsumer.java
+-------------------------------------
+
+Erreur avant correction :
+
+@KafkaListener(topics = "xxxxx", groupId = "${spring.kafka.consumer.group-id}")
+
+Probleme :
+Le consumer ecoutait un topic invalide appele "xxxxx".
+
+Correction apres :
+
+@KafkaListener(topics = "${app.kafka.topic}", groupId = "${spring.kafka.consumer.group-id}")
+
+Pourquoi :
+Le consumer ecoute maintenant le meme topic que celui utilise par le producer.
+
+Nettoyage aussi effectue :
+- suppression d'un import inutile ;
+- correction du message de log :
+
+Message received: {}
+
+
+6. Correction de MessageProducer.java
+-------------------------------------
+
+Avant :
+Le KafkaTemplate etait injecte avec @Autowired sur un attribut.
+Le topic pouvait etre passe directement a la methode d'envoi.
+
+Apres :
+Le KafkaTemplate et le topic sont injectes via le constructeur.
+
+Pourquoi :
+C'est une pratique plus propre avec Spring.
+Le producer utilise maintenant par defaut la propriete :
+
+app.kafka.topic
+
+Cela evite de repeter le nom du topic dans plusieurs classes.
+
+
+7. Correction de ProducerController.java
+----------------------------------------
+
+Avant :
+
+messageProducer.sendMessage("mon-tunnel-topic", content);
+
+Probleme :
+Le topic etait ecrit en dur dans le controller.
+
+Apres :
+
+messageProducer.sendMessage(content);
+
+Pourquoi :
+Le controller n'a plus besoin de connaitre le nom du topic.
+Cette responsabilite est geree par MessageProducer et application.properties.
+
+
+8. Correction de la version Java
+--------------------------------
+
+Erreur avant correction dans pom.xml :
+
+<java.version>23</java.version>
+
+Probleme :
+La machine utilise Java 17.
+Demander Java 23 peut empecher la compilation.
+
+Correction apres :
+
+<java.version>17</java.version>
+
+Pourquoi :
+Java 17 est compatible avec l'environnement local et avec Spring Boot.
+
+
+9. Verification
+---------------
+
+Commande executee :
+
+mvn clean package
+
+Resultat :
+
+BUILD SUCCESS
+
+Conclusion
+----------
+
+La branche step-1 est maintenant corrigee.
+Le producer et le consumer Spring Kafka utilisent :
+
+- le meme broker : localhost:9092 ;
+- le meme topic : mon-tunnel-topic ;
+- un group id configure proprement : tp-kafka-step1 ;
+- les serializers/deserializers String standards de Spring Kafka.
+
+Les erreurs principales etaient donc :
+- mauvais broker Kafka ;
+- placeholders non remplaces ;
+- topic producer/consumer different ;
+- Java version trop elevee ;
+- configuration Kafka non centralisee.
