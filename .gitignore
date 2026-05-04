@@ -3,3 +3,9 @@ __pycache__/
 .vscode/*.pyc
 .vscode/
 .env
+target/
+.idea/
+*.class
+*.log
+.maven-home/
+.m2repo/
