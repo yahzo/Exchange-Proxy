@@ -1,8 +1,8 @@
-# Exchange Proxy - Pipeline taux de change
+# Exchange Proxy - Application temps reel
 
-## Important : migration Java
+## Important : migration Spring Boot
 
-Le projet a ete migre de **Python vers Java**.
+Le projet a ete migre de **Python** vers **Java Spring Boot**.
 
 Il ne faut donc plus lancer :
 
@@ -10,19 +10,23 @@ Il ne faut donc plus lancer :
 python producer/main.py
 python consumer/main.py
 pip install -r requirements.txt
+mvn -pl producer exec:java
+mvn -pl consumer exec:java
 ```
 
-Le projet se lance maintenant avec **Java 17**, **Maven** et **Docker**.
+Le producer et le consumer sont maintenant reunis dans **une seule application Spring Boot**.
 
 ## Objectif du projet
 
-Exchange Proxy est un pipeline de donnees temps reel :
+Exchange Proxy centralise les appels a l'API de taux de change pour eviter que plusieurs equipes interrogent directement le fournisseur.
 
-1. Le **producer Java** appelle une API de taux de change USD.
-2. Il envoie les donnees JSON dans Kafka sur le topic `exchange-rates`.
-3. Le **consumer Java** lit les messages Kafka.
-4. Il indexe les donnees dans Elasticsearch dans l'index `forex-data`.
-5. Kibana permet de visualiser les donnees.
+Le pipeline fait ceci :
+
+1. Un service Spring planifie appelle l'API `https://api.exchangerate-api.com/v4/latest/USD`.
+2. Il publie le JSON dans Kafka sur le topic `exchange-rates`.
+3. Un consumer Spring Kafka lit ce meme topic.
+4. Les donnees sont indexees dans Elasticsearch dans l'index `forex-data`.
+5. Kibana permet de creer un tableau de bord de visualisation.
 
 ## Architecture
 
@@ -30,13 +34,16 @@ Exchange Proxy est un pipeline de donnees temps reel :
 API Exchange Rate
         |
         v
-Producer Java
+Spring Boot Scheduler
+        |
+        v
+Spring Kafka Producer
         |
         v
 Kafka topic: exchange-rates
         |
         v
-Consumer Java
+Spring Kafka Consumer
         |
         v
 Elasticsearch index: forex-data
@@ -47,13 +54,11 @@ Kibana
 
 ## Prerequis
 
-Installer sur la machine :
-
 - Docker Desktop
 - Java JDK 17
 - Maven
 
-Verifier l'installation :
+Verifier :
 
 ```powershell
 java -version
@@ -61,80 +66,72 @@ mvn -version
 docker version
 ```
 
-Si `mvn` n'est pas reconnu, Maven n'est pas installe ou son dossier `bin` n'est pas dans le `Path`.
-
 ## Installation
-
-Cloner le projet :
 
 ```powershell
 git clone https://github.com/yahzo/Exchange-Proxy.git
 cd Exchange-Proxy
-```
-
-Compiler le projet :
-
-```powershell
+git checkout step-2
 mvn clean package
 ```
 
-Maven telecharge automatiquement les dependances Java declarees dans les fichiers `pom.xml`.
-
 ## Lancement
 
-### 1. Demarrer Docker Desktop
+### 1. Demarrer l'infrastructure
 
-Ouvrir Docker Desktop et attendre qu'il soit pret.
-
-### 2. Demarrer Kafka, Elasticsearch et Kibana
-
-Depuis le dossier `Exchange-Proxy` :
+Ouvrir Docker Desktop, puis lancer :
 
 ```powershell
 docker compose up -d
 ```
 
-Verifier les conteneurs :
+Verifier :
 
 ```powershell
 docker compose ps
 ```
 
-Les services attendus :
+Services attendus :
 
-- `kafka-broker` sur `localhost:9092`
-- `elasticsearch` sur `http://localhost:9200`
-- `kibana` sur `http://localhost:5601`
+- Kafka : `localhost:9092`
+- Elasticsearch : `http://localhost:9200`
+- Kibana : `http://localhost:5601`
 
-### 3. Lancer le producer
-
-Dans un premier terminal :
+### 2. Lancer l'application Spring Boot
 
 ```powershell
-mvn -pl producer exec:java
+mvn spring-boot:run
 ```
 
-Le producer recupere les taux de change toutes les 60 secondes et les envoie dans Kafka.
+L'application :
 
-### 4. Lancer le consumer
+- cree le topic Kafka `exchange-rates` si besoin ;
+- appelle l'API toutes les 60 secondes ;
+- publie les taux dans Kafka ;
+- consomme les messages Kafka ;
+- indexe les documents dans Elasticsearch.
 
-Dans un deuxieme terminal :
-
-```powershell
-mvn -pl consumer exec:java
-```
-
-Le consumer lit Kafka et stocke les donnees dans Elasticsearch.
-
-### 5. Ouvrir Kibana
+### 3. Verifier l'application
 
 Dans le navigateur :
+
+```text
+http://localhost:8080
+```
+
+Endpoint de sante Spring Boot :
+
+```text
+http://localhost:8080/actuator/health
+```
+
+### 4. Ouvrir Kibana
 
 ```text
 http://localhost:5601
 ```
 
-Creer une Data View avec :
+Creer une Data View :
 
 ```text
 Index pattern: forex-data
@@ -143,26 +140,33 @@ Time field: @timestamp
 
 ## Configuration
 
-Les valeurs par defaut peuvent etre surchargees avec des variables d'environnement.
+Les valeurs sont dans `src/main/resources/application.properties`.
 
-| Variable | Defaut | Utilisation |
+| Propriete | Defaut | Description |
 | --- | --- | --- |
-| `KAFKA_SERVER` | `localhost:9092` | Adresse Kafka |
-| `TOPIC_NAME` | `exchange-rates` | Topic Kafka |
-| `API_URL` | `https://api.exchangerate-api.com/v4/latest/USD` | API appelee par le producer |
-| `FETCH_INTERVAL_SECONDS` | `60` | Delai entre deux appels API |
-| `ES_SERVER` | `http://localhost:9200` | Adresse Elasticsearch |
-| `INDEX_NAME` | `forex-data` | Index Elasticsearch |
-| `CONSUMER_GROUP_ID` | `exchange-proxy-consumer` | Groupe du consumer Kafka |
+| `spring.kafka.bootstrap-servers` | `localhost:9092` | Broker Kafka |
+| `spring.kafka.consumer.group-id` | `exchange-proxy-consumer` | Groupe Kafka du consumer |
+| `exchange.kafka.topic` | `exchange-rates` | Topic Kafka |
+| `exchange.kafka.partitions` | `3` | Nombre de partitions du topic |
+| `exchange.kafka.replication-factor` | `1` | Replication factor local |
+| `exchange.api-url` | `https://api.exchangerate-api.com/v4/latest/USD` | API de taux de change |
+| `exchange.fetch-interval-ms` | `60000` | Intervalle d'appel API |
+| `exchange.elasticsearch.url` | `http://localhost:9200` | Adresse Elasticsearch |
+| `exchange.elasticsearch.index` | `forex-data` | Index Elasticsearch |
 
-Exemple pour tester plus vite :
+Exemple pour accelerer les tests :
 
 ```powershell
-$env:FETCH_INTERVAL_SECONDS="10"
-mvn -pl producer exec:java
+mvn spring-boot:run "-Dspring-boot.run.arguments=--exchange.fetch-interval-ms=10000"
 ```
 
 ## Commandes utiles
+
+Compiler :
+
+```powershell
+mvn clean package
+```
 
 Voir les logs Docker :
 
@@ -170,31 +174,25 @@ Voir les logs Docker :
 docker compose logs -f
 ```
 
-Voir uniquement les logs Kafka :
+Voir les logs Kafka :
 
 ```powershell
 docker compose logs -f kafka
 ```
 
-Arreter les services :
+Arreter l'infrastructure :
 
 ```powershell
 docker compose down
-```
-
-Recompiler :
-
-```powershell
-mvn clean package
 ```
 
 ## Depannage
 
 ### `localhost:9092` ne s'ouvre pas dans le navigateur
 
-C'est normal. Kafka n'est pas une page web et n'utilise pas HTTP.
+C'est normal. Kafka n'est pas une page web HTTP.
 
-Tester le port avec :
+Tester le port :
 
 ```powershell
 Test-NetConnection localhost -Port 9092
@@ -206,63 +204,29 @@ La valeur attendue est :
 TcpTestSucceeded : True
 ```
 
-### `Topic exchange-rates not present in metadata after 60000 ms`
+### Kafka ou Elasticsearch ne repond pas
 
-Kafka n'est pas lance ou pas encore pret.
-
-Verifier :
+Verifier Docker :
 
 ```powershell
 docker compose ps
 ```
 
-Puis relancer si besoin :
+Relancer :
 
 ```powershell
 docker compose up -d
 ```
 
-### `mvn: The term 'mvn' is not recognized`
+### Conflit de noms Docker
 
-Maven n'est pas installe ou le terminal n'a pas recharge le `Path`.
-
-Solutions :
-
-1. Fermer puis rouvrir le terminal.
-2. Verifier `mvn -version`.
-3. Installer Maven si besoin.
-
-### Conflit de nom Docker avec `elasticsearch`, `kibana` ou `kafka-broker`
-
-Il peut rester d'anciens conteneurs arretes avec les memes noms.
-
-Lister les conteneurs :
+Si d'anciens conteneurs bloquent les noms :
 
 ```powershell
 docker ps -a
-```
-
-Supprimer uniquement les anciens conteneurs qui bloquent :
-
-```powershell
 docker rm elasticsearch kibana kafka-broker
-```
-
-Puis relancer :
-
-```powershell
 docker compose up -d
 ```
-
-### Warning SLF4J
-
-Ce message n'est pas bloquant :
-
-```text
-SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder"
-```
-
-Le producer et le consumer peuvent quand meme fonctionner.
 
 ## Structure du projet
 
@@ -270,22 +234,24 @@ Le producer et le consumer peuvent quand meme fonctionner.
 Exchange-Proxy/
 |-- docker-compose.yml
 |-- pom.xml
-|-- producer/
-|   |-- pom.xml
-|   `-- src/main/java/com/yahzo/exchangeproxy/producer/
-|       `-- ExchangeRateProducerApp.java
-`-- consumer/
-    |-- pom.xml
-    `-- src/main/java/com/yahzo/exchangeproxy/consumer/
-        `-- ExchangeRateConsumerApp.java
+`-- src/
+    `-- main/
+        |-- java/com/yahzo/exchangeproxy/
+        |   |-- ExchangeProxyApplication.java
+        |   |-- config/
+        |   |-- producer/
+        |   |-- consumer/
+        |   `-- web/
+        `-- resources/application.properties
 ```
 
 ## Versions principales
 
 - Java 17
+- Spring Boot 3.4.2
 - Maven 3.x
 - Kafka Docker `apache/kafka:3.9.0`
+- Kafka clients `3.9.0`
 - Elasticsearch `8.12.0`
 - Kibana `8.12.0`
-- Kafka client Java `3.9.0`
 - Elasticsearch Java client `8.12.0`
